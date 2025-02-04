@@ -27,11 +27,11 @@ export function Register() {
       // Test connection first
       const isConnected = await testConnection();
       if (!isConnected) {
-        console.error('Failed to connect to Supabase');
-        setError('Unable to connect to the service. Please try again later.');
+        setError('Network error. Please check your internet connection and try again.');
         return;
       }
 
+      // First create the user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -43,26 +43,56 @@ export function Register() {
         }
       });
 
-      if (authError) throw authError;
+      if (authError) {
+        console.error('Auth error:', authError);
+        throw authError;
+      }
 
       if (authData.user) {
-        // Create profile
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            id: authData.user.id,
-            email: formData.email,
-            full_name: formData.fullName,
-            role: 'student'
-          });
+        // Get the session to ensure we have the right permissions
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('Session error:', sessionError);
+          throw sessionError;
+        }
 
-        if (profileError) throw profileError;
+        if (session) {
+          // Create profile with the session
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .insert({
+              id: authData.user.id,
+              email: formData.email,
+              full_name: formData.fullName,
+              role: 'student'
+            })
+            .single();
 
-        navigate('/auth/login');
+          if (profileError) {
+            if (profileError.code === '23505') { // Unique violation
+              console.log('Profile already exists, continuing...');
+            } else {
+              console.error('Profile creation error:', profileError);
+              throw profileError;
+            }
+          }
+        }
+
+        // Success! Redirect to login with the correct path
+        navigate('/login', { 
+          state: { 
+            message: 'Registration successful! Please check your email to verify your account.' 
+          }
+        });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Registration error:', error);
-      setError(error.message);
+      if (error.message?.includes('duplicate key value')) {
+        setError('An account with this email already exists.');
+      } else {
+        setError(error.message || 'Registration failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

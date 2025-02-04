@@ -4,14 +4,57 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- Create custom types first
-CREATE TYPE user_role AS ENUM ('admin', 'student', 'guest');
-CREATE TYPE room_type AS ENUM ('single', 'double', 'triple');
-CREATE TYPE room_status AS ENUM ('available', 'occupied', 'maintenance');
-CREATE TYPE maintenance_status AS ENUM ('pending', 'in-progress', 'completed');
-CREATE TYPE maintenance_priority AS ENUM ('low', 'medium', 'high');
-CREATE TYPE notification_type AS ENUM ('info', 'warning', 'success', 'error');
-CREATE TYPE student_status AS ENUM ('checked-in', 'checked-out');
+-- Create custom types if they don't exist
+DO $$ BEGIN
+    CREATE TYPE user_role AS ENUM ('admin', 'student', 'guest');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE room_type AS ENUM ('single', 'double', 'triple');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE room_status AS ENUM ('available', 'occupied', 'maintenance');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE maintenance_status AS ENUM ('pending', 'in-progress', 'completed');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE maintenance_priority AS ENUM ('low', 'medium', 'high');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE notification_type AS ENUM ('info', 'warning', 'success', 'error');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE student_status AS ENUM ('checked-in', 'checked-out');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+-- Drop existing tables and recreate them
+DROP TABLE IF EXISTS notifications CASCADE;
+DROP TABLE IF EXISTS maintenance_requests CASCADE;
+DROP TABLE IF EXISTS room_occupants CASCADE;
+DROP TABLE IF EXISTS students CASCADE;
+DROP TABLE IF EXISTS rooms CASCADE;
+DROP TABLE IF EXISTS profiles CASCADE;
+DROP TABLE IF EXISTS meals CASCADE;
 
 -- Create base tables
 CREATE TABLE IF NOT EXISTS public.profiles (
@@ -28,19 +71,26 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 -- Policies for profiles
-CREATE POLICY "Anyone can view profiles"
+DROP POLICY IF EXISTS "Anyone can view profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Users can insert their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
+
+CREATE POLICY "Public profiles are viewable by everyone"
   ON public.profiles FOR SELECT
   USING (true);
 
-CREATE POLICY "Users can insert their own profile"
+CREATE POLICY "Enable insert for authenticated users only"
   ON public.profiles FOR INSERT
-  WITH CHECK (auth.uid() = id);
+  WITH CHECK (auth.role() IN ('authenticated', 'anon'));
 
-CREATE POLICY "Users can update their own profile"
+CREATE POLICY "Enable update for users based on id"
   ON public.profiles FOR UPDATE
   USING (auth.uid() = id);
 
--- Grant permissions
+-- Grant necessary permissions
+GRANT USAGE ON SCHEMA public TO anon;
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT ALL ON public.profiles TO anon;
 GRANT ALL ON public.profiles TO authenticated;
 GRANT ALL ON public.profiles TO service_role;
 
@@ -69,16 +119,21 @@ BEGIN
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email),
     COALESCE((NEW.raw_user_meta_data->>'role')::user_role, 'student'::user_role)
-  );
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  RAISE LOG 'Error in handle_new_user: %', SQLERRM;
   RETURN NEW;
 END;
 $$ language plpgsql security definer;
 
--- Create trigger for new user signups
+-- Recreate the trigger
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user();
 
 -- Create rooms table
 CREATE TABLE rooms (
@@ -135,6 +190,45 @@ CREATE TABLE notifications (
   read boolean DEFAULT false,
   created_at timestamptz DEFAULT now() NOT NULL
 );
+
+-- Create meals table
+CREATE TABLE meals (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name text NOT NULL,
+  description text,
+  type text NOT NULL CHECK (type IN ('breakfast', 'lunch', 'dinner', 'snack')),
+  day_of_week text NOT NULL CHECK (day_of_week IN ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')),
+  start_time time NOT NULL,
+  end_time time NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL
+);
+
+-- Enable RLS for meals
+ALTER TABLE meals ENABLE ROW LEVEL SECURITY;
+
+-- Create policies for meals
+CREATE POLICY "Meals are viewable by authenticated users"
+  ON meals FOR SELECT
+  USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Only admins can modify meals"
+  ON meals FOR ALL
+  USING (auth.role() = 'authenticated' AND EXISTS (
+    SELECT 1 FROM profiles
+    WHERE profiles.id = auth.uid()
+    AND profiles.role = 'admin'
+  ));
+
+-- Create trigger for updated_at
+CREATE TRIGGER update_meals_updated_at
+  BEFORE UPDATE ON meals
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- Grant permissions
+GRANT ALL ON meals TO authenticated;
+GRANT ALL ON meals TO service_role;
 
 -- Create updated_at triggers
 CREATE OR REPLACE FUNCTION update_updated_at_column()

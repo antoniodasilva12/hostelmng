@@ -1,25 +1,17 @@
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  allowedRoles?: ('admin' | 'student' | 'guest')[];
+  allowedRoles?: string[];
 }
 
-export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { user, profile, loading } = useAuthStore();
-  const location = useLocation();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-      </div>
-    );
-  }
+export function ProtectedRoute({ children, allowedRoles = ['student', 'admin'] }: ProtectedRouteProps) {
+  const user = useAuthStore((state) => state.user);
+  const profile = useAuthStore((state) => state.profile);
 
   if (!user) {
-    return <Navigate to="/auth" state={{ from: location }} replace />;
+    return <Navigate to="/login" replace />;
   }
 
   if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {

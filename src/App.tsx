@@ -1,77 +1,42 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useAuthStore } from './store/authStore';
-import { DashboardLayout } from './components/DashboardLayout';
 import { Login } from './components/Login';
 import { Register } from './components/Register';
-import { RoomBooking } from './components/RoomBooking';
+import { Dashboard } from './components/Dashboard';
+import { DashboardHome } from './components/DashboardHome';
+import { Profile } from './components/Profile';
+import { MaintenanceRequests } from './components/MaintenanceRequests';
 import { RoomBookings } from './components/RoomBookings';
 import { MealPlan } from './components/MealPlan';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
-interface ProtectedRouteProps {
-  children: React.ReactNode;
-  allowedRoles?: string[];
-}
-
-function ProtectedRoute({ children, allowedRoles = ['student', 'admin'] }: ProtectedRouteProps) {
-  const { user, profile } = useAuthStore();
-
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
-  if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
-  return <>{children}</>;
-}
-
-function App() {
+export default function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        
+        {/* Public Routes */}
+        <Route path="login" element={<Login />} />
+        <Route path="register" element={<Register />} />
+
+        {/* Protected Routes */}
         <Route
-          path="/dashboard"
+          path="/"
           element={
             <ProtectedRoute>
-              <DashboardLayout />
+              <Dashboard />
             </ProtectedRoute>
           }
         >
-          <Route index element={<div>Welcome to Dashboard</div>} />
-          <Route
-            path="rooms"
-            element={
-              <ProtectedRoute allowedRoles={['student']}>
-                <RoomBooking />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="bookings"
-            element={
-              <ProtectedRoute allowedRoles={['student']}>
-                <RoomBookings />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="meal-plan"
-            element={
-              <ProtectedRoute allowedRoles={['student']}>
-                <MealPlan />
-              </ProtectedRoute>
-            }
-          />
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardHome />} />
+          <Route path="profile" element={<Profile />} />
+          <Route path="bookings" element={<RoomBookings />} />
+          <Route path="maintenance" element={<MaintenanceRequests />} />
+          <Route path="meal-plan" element={<MealPlan />} />
         </Route>
 
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        {/* Catch all */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   );
 }
-
-export default App;

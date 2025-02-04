@@ -9,7 +9,11 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       port: 3014,
-      host: true
+      host: true,
+      cors: true,
+      headers: {
+        'Access-Control-Allow-Origin': '*'
+      }
     },
     define: {
       'process.env.VITE_SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL),

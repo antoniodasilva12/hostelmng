@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { LogIn } from 'lucide-react';
@@ -8,6 +8,8 @@ export function Login() {
   const navigate = useNavigate();
   const setUser = useAuthStore((state) => state.setUser);
   const setProfile = useAuthStore((state) => state.setProfile);
+  const location = useLocation();
+  const message = location.state?.message;
   
   const [formData, setFormData] = useState({
     email: '',
@@ -15,37 +17,98 @@ export function Login() {
   });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+
+  const handleResendVerification = async () => {
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: formData.email
+      });
+
+      if (error) throw error;
+
+      setError('Verification email resent. Please check your inbox.');
+    } catch (error: any) {
+      console.error('Resend verification error:', error);
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setLoading(true);
       setError(null);
+      setNeedsVerification(false);
 
       const { data: { user }, error: authError } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
       });
 
-      if (authError) throw authError;
+      if (authError) {
+        if (authError.message.includes('Email not confirmed')) {
+          setNeedsVerification(true);
+          throw new Error('Please verify your email before logging in.');
+        }
+        throw authError;
+      }
 
       if (user) {
-        // Fetch student profile
-        const { data: profile, error: profileError } = await supabase
-          .from('student_profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
+        try {
+          // Try to fetch existing profile
+          let { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, email, full_name, role')
+            .eq('id', user.id)
+            .maybeSingle();
 
-        if (profileError) throw profileError;
+          if (profileError) {
+            console.error('Profile fetch error:', profileError);
+            throw new Error('Failed to load user profile');
+          }
 
-        setUser(user);
-        setProfile(profile);
-        navigate('/dashboard');
+          // If no profile exists, create one
+          if (!profile) {
+            console.log('Creating new profile for user:', user.id);
+            const { data: newProfile, error: createError } = await supabase
+              .from('profiles')
+              .insert({
+                id: user.id,
+                email: user.email,
+                full_name: user.email?.split('@')[0] || 'User',
+                role: 'student'
+              })
+              .select('id, email, full_name, role')
+              .single();
+
+            if (createError) {
+              console.error('Profile creation error:', createError);
+              throw new Error('Failed to create user profile');
+            }
+
+            profile = newProfile;
+          }
+
+          if (!profile) {
+            throw new Error('Failed to load or create user profile');
+          }
+
+          setUser(user);
+          setProfile(profile);
+          navigate('/dashboard');
+        } catch (profileError: any) {
+          console.error('Profile error:', profileError);
+          throw new Error('Failed to load user profile. Please try again.');
+        }
       }
     } catch (error: any) {
       console.error('Login error:', error);
-      setError(error.message || 'Failed to login. Please check your credentials.');
+      setError(error.message);
     } finally {
       setLoading(false);
     }
@@ -66,12 +129,32 @@ export function Login() {
           </p>
         </div>
 
+        {message && (
+          <div className="bg-green-50 border-l-4 border-green-400 p-4">
+            <div className="flex">
+              <div className="ml-3">
+                <p className="text-sm text-green-700">{message}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="bg-red-50 border-l-4 border-red-400 p-4">
-            <div className="flex">
+            <div className="flex flex-col">
               <div className="ml-3">
                 <p className="text-sm text-red-700">{error}</p>
               </div>
+              {needsVerification && (
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={loading}
+                  className="mt-2 ml-3 text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                >
+                  Resend verification email
+                </button>
+              )}
             </div>
           </div>
         )}

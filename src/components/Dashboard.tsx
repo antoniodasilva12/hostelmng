@@ -1,6 +1,8 @@
 import React from 'react';
-import { PieChart, Users, PenTool as Tool, MessageSquare } from 'lucide-react';
+import { PieChart, Users, Wrench, MessageSquare } from 'lucide-react';
 import { useHostelStore } from '../store';
+import { Outlet } from 'react-router-dom';
+import { Sidebar } from './Sidebar';
 
 export function Dashboard() {
   const { rooms, students, maintenanceRequests } = useHostelStore();
@@ -22,7 +24,7 @@ export function Dashboard() {
       title: 'Maintenance Requests',
       value: maintenanceRequests.filter(r => r.status === 'pending').length,
       color: 'bg-orange-500',
-      icon: Tool,
+      icon: Wrench,
     },
   ];
 
@@ -54,42 +56,17 @@ export function Dashboard() {
   ];
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <header className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-800">Welcome to SmartHostel AI</h2>
-        <p className="text-gray-600">Your AI-powered hostel management solution</p>
-      </header>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {stats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-lg shadow-md p-6">
-            <div className={`w-12 h-12 ${stat.color} rounded-lg mb-4 flex items-center justify-center`}>
-              <stat.icon className="h-6 w-6 text-white" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-800">{stat.title}</h3>
-            <p className="text-2xl font-bold mt-2">{stat.value}</p>
-          </div>
-        ))}
+    <div className="h-screen flex">
+      {/* Fixed Sidebar */}
+      <div className="fixed inset-y-0 left-0 w-64 bg-white">
+        <Sidebar />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {features.map((feature, index) => (
-          <button
-            key={index}
-            onClick={feature.onClick}
-            className="bg-white rounded-lg shadow-md overflow-hidden transition-transform hover:scale-[1.02] text-left"
-          >
-            <img 
-              src={feature.image} 
-              alt={feature.title}
-              className="w-full h-48 object-cover"
-            />
-            <div className="p-6">
-              <h3 className="text-xl font-semibold text-gray-800 mb-2">{feature.title}</h3>
-              <p className="text-gray-600">{feature.description}</p>
-            </div>
-          </button>
-        ))}
+      {/* Main Content with left margin to account for fixed sidebar */}
+      <div className="flex-1 ml-64 overflow-auto bg-gray-50">
+        <div className="container mx-auto px-6 py-8">
+          <Outlet />
+        </div>
       </div>
     </div>
   );
